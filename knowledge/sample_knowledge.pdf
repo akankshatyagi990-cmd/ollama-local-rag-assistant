@@ -1,0 +1,67 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+5 0 obj
+<< /Length 937 >>
+stream
+BT
+/F1 11 Tf
+50 750 Td
+14 TL
+(Sample Knowledge Document) Tj
+T*
+T*
+(Machine Learning Concepts) Tj
+T*
+T*
+(Random Forest is an ensemble method that combines predictions from many decision trees.) Tj
+T*
+(For classification, the trees vote; for regression, their predictions are averaged.) Tj
+T*
+T*
+(Gradient Descent minimizes a loss function by repeatedly adjusting model parameters.) Tj
+T*
+(The learning rate controls the size of each adjustment step.) Tj
+T*
+T*
+(Overfitting occurs when a model fits training data closely but performs poorly on) Tj
+T*
+(unseen data. Regularization, cross-validation, and simpler models can help reduce it.) Tj
+T*
+T*
+(Deep Learning Concepts) Tj
+T*
+T*
+(A neural network has input, hidden, and output layers of connected artificial neurons.) Tj
+T*
+(During training, it adjusts its weights to reduce prediction error.) Tj
+T*
+(Activation functions such as ReLU introduce non-linearity into the network.) Tj
+T*
+ET
+endstream
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000121 00000 n 
+0000000247 00000 n 
+0000000317 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+1305
+%%EOF

@@ -1,0 +1,10 @@
+venv/
+__pycache__/
+*.pyc
+
+chroma_db/
+rag_chat_history.json
+langchain_chat_history.json
+chat_history.json
+
+.env

@@ -1,0 +1,35 @@
+K-Nearest Neighbors
+
+K-Nearest Neighbors, commonly called KNN, is a supervised machine learning algorithm used for classification and regression.
+
+KNN makes predictions by looking at the K closest data points to a new data point.
+
+For classification, the most common class among the nearest neighbors becomes the prediction.
+
+For regression, the values of the nearest neighbors are usually averaged.
+
+The value of K determines how many neighboring data points are considered.
+
+A small K can make the model sensitive to noise, while a very large K can make the model too general.
+
+
+Neural Networks
+
+A neural network is a machine learning model inspired by the structure of biological neurons.
+
+Neural networks are made of layers of connected artificial neurons.
+
+The input layer receives data, hidden layers learn patterns and the output layer produces the final prediction.
+
+During training, the network adjusts its weights to reduce prediction error.
+
+
+Activation Functions
+
+Activation functions introduce non-linearity into neural networks.
+
+Common activation functions include ReLU, sigmoid and tanh.
+
+ReLU is widely used in hidden layers.
+
+Sigmoid is commonly used for binary classification output because it produces values between 0 and 1.

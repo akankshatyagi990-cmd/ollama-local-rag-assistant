@@ -1,0 +1,40 @@
+Random Forest
+
+Random Forest is an ensemble machine learning algorithm that uses many decision trees.
+
+Each decision tree is trained using a random sample of the training data. Random Forest also selects random subsets of features when building individual trees.
+
+For classification problems, every tree makes a prediction and the final prediction is decided using majority voting.
+
+For regression problems, the predictions of all trees are averaged.
+
+Random Forest helps reduce overfitting compared with using a single decision tree.
+
+
+XGBoost
+
+XGBoost stands for Extreme Gradient Boosting.
+
+It builds decision trees sequentially. Each new tree attempts to correct errors made by the previous trees.
+
+XGBoost uses gradient boosting and regularization to improve prediction accuracy and control overfitting.
+
+Important XGBoost parameters include learning_rate, n_estimators, max_depth, subsample and colsample_bytree.
+
+
+Gradient Descent
+
+Gradient Descent is an optimization algorithm used to minimize a loss function.
+
+The algorithm repeatedly adjusts model parameters in the direction that reduces the error.
+
+The learning rate controls how large each update step is.
+
+
+Overfitting
+
+Overfitting occurs when a machine learning model learns the training data too closely.
+
+An overfitted model usually performs very well on training data but performs poorly on new unseen data.
+
+Techniques such as regularization, cross-validation and controlling model complexity can help reduce overfitting.
