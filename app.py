@@ -1,10 +1,14 @@
+import hashlib
 import json
 import os
+from pathlib import Path
 
 import streamlit as st
+from pypdf import PdfReader
 
 from langchain_ollama import ChatOllama, OllamaEmbeddings
 from langchain_chroma import Chroma
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
@@ -29,6 +33,15 @@ COLLECTION_NAME = "local_rag"
 
 CHAT_HISTORY_FILE = "rag_chat_history.json"
 
+UPLOAD_FOLDER = Path(
+    "knowledge/uploads"
+)
+
+UPLOAD_FOLDER.mkdir(
+    parents=True,
+    exist_ok=True
+)
+
 LLM_MODEL = "llama3.2:3b"
 EMBEDDING_MODEL = "nomic-embed-text"
 
@@ -36,6 +49,25 @@ TXT_MAX_DISTANCE = 0.75
 PDF_MAX_DISTANCE = 0.65
 
 DISTANCE_MARGIN = 0.18
+
+BATCH_SIZE = 20
+
+
+# --------------------------------------------------
+# TEXT SPLITTER
+# --------------------------------------------------
+
+text_splitter = RecursiveCharacterTextSplitter(
+    chunk_size=250,
+    chunk_overlap=30,
+    separators=[
+        "\n\n",
+        "\n",
+        ". ",
+        " ",
+        ""
+    ]
+)
 
 
 # --------------------------------------------------
@@ -136,7 +168,10 @@ def load_chat_history():
 
             data = json.load(file)
 
-        if isinstance(data, list):
+        if isinstance(
+            data,
+            list
+        ):
 
             return data
 
@@ -185,10 +220,14 @@ if "messages" not in st.session_state:
 # FOLLOW-UP DETECTION
 # --------------------------------------------------
 
-def is_follow_up_question(question):
+def is_follow_up_question(
+    question
+):
 
     question_lower = (
-        question.lower().strip()
+        question
+        .lower()
+        .strip()
     )
 
     follow_up_starters = [
@@ -226,17 +265,23 @@ def is_follow_up_question(question):
 # EXTRACT MAIN TOPIC
 # --------------------------------------------------
 
-def extract_main_topic(question):
+def extract_main_topic(
+    question
+):
 
     parts = [
         part.strip()
-        for part in question.split("?")
+        for part
+        in question.split("?")
         if part.strip()
     ]
 
     if parts:
 
-        return parts[0] + "?"
+        return (
+            parts[0]
+            + "?"
+        )
 
     return question
 
@@ -278,7 +323,9 @@ def get_last_standalone_topic():
 # CREATE RETRIEVAL QUERY
 # --------------------------------------------------
 
-def create_retrieval_query(question):
+def create_retrieval_query(
+    question
+):
 
     if not is_follow_up_question(
         question
@@ -331,10 +378,12 @@ def passes_absolute_threshold(
 
 
 # --------------------------------------------------
-# RAG FUNCTION
+# RAG QUESTION FUNCTION
 # --------------------------------------------------
 
-def answer_question(question):
+def answer_question(
+    question
+):
 
     retrieval_query = (
         create_retrieval_query(
@@ -359,7 +408,9 @@ def answer_question(question):
             retrieval_query
         )
 
-    best_distance = results[0][1]
+    best_distance = (
+        results[0][1]
+    )
 
     relative_limit = (
         best_distance
@@ -422,10 +473,561 @@ def answer_question(question):
 
 
 # --------------------------------------------------
+# CREATE FILE HASH
+# --------------------------------------------------
+
+def create_file_hash(
+    file_bytes
+):
+
+    return hashlib.sha256(
+        file_bytes
+    ).hexdigest()
+
+
+# --------------------------------------------------
+# DELETE EXISTING SOURCE
+# --------------------------------------------------
+
+def delete_existing_source(
+    source_name
+):
+
+    existing = vector_store.get(
+        where={
+            "source": source_name
+        }
+    )
+
+    existing_ids = (
+        existing.get(
+            "ids",
+            []
+        )
+    )
+
+    if existing_ids:
+
+        vector_store.delete(
+            ids=existing_ids
+        )
+
+        return len(
+            existing_ids
+        )
+
+    return 0
+
+
+# --------------------------------------------------
+# DELETE UPLOADED DOCUMENT
+# --------------------------------------------------
+
+def delete_uploaded_document(
+    source_name
+):
+
+    existing = vector_store.get(
+        where={
+            "source": source_name
+        },
+        include=[
+            "metadatas"
+        ]
+    )
+
+    existing_ids = (
+        existing.get(
+            "ids",
+            []
+        )
+    )
+
+    metadatas = (
+        existing.get(
+            "metadatas",
+            []
+        )
+    )
+
+
+    if not existing_ids:
+
+        return {
+            "status": "not_found",
+            "deleted_chunks": 0
+        }
+
+
+    uploaded_flags = [
+        metadata.get(
+            "uploaded",
+            False
+        )
+        for metadata in metadatas
+        if metadata is not None
+    ]
+
+
+    if not uploaded_flags:
+
+        return {
+            "status": "protected",
+            "deleted_chunks": 0
+        }
+
+
+    if not all(
+        uploaded_flags
+    ):
+
+        return {
+            "status": "protected",
+            "deleted_chunks": 0
+        }
+
+
+    vector_store.delete(
+        ids=existing_ids
+    )
+
+
+    file_path = (
+        UPLOAD_FOLDER
+        / source_name
+    )
+
+
+    if file_path.exists():
+
+        try:
+
+            file_path.unlink()
+
+        except OSError:
+
+            pass
+
+
+    return {
+        "status": "deleted",
+        "deleted_chunks": len(
+            existing_ids
+        )
+    }
+
+
+# --------------------------------------------------
+# CHECK DUPLICATE FILE
+# --------------------------------------------------
+
+def file_already_indexed(
+    file_hash
+):
+
+    existing = vector_store.get(
+        where={
+            "file_hash": file_hash
+        }
+    )
+
+    existing_ids = (
+        existing.get(
+            "ids",
+            []
+        )
+    )
+
+    return bool(
+        existing_ids
+    )
+
+
+# --------------------------------------------------
+# TXT CHUNKS
+# --------------------------------------------------
+
+def extract_txt_chunks(
+    file_path,
+    file_hash
+):
+
+    text = file_path.read_text(
+        encoding="utf-8",
+        errors="ignore"
+    )
+
+    chunks = (
+        text_splitter.split_text(
+            text
+        )
+    )
+
+    texts = []
+    metadatas = []
+    ids = []
+
+    for chunk_number, chunk in enumerate(
+        chunks,
+        start=1
+    ):
+
+        texts.append(
+            chunk
+        )
+
+        metadatas.append({
+            "source": file_path.name,
+            "file_type": "txt",
+            "chunk_number": chunk_number,
+            "file_hash": file_hash,
+            "uploaded": True
+        })
+
+        ids.append(
+            f"upload_"
+            f"{file_hash[:12]}_"
+            f"txt_"
+            f"{chunk_number}"
+        )
+
+    return (
+        texts,
+        metadatas,
+        ids
+    )
+
+
+# --------------------------------------------------
+# PDF CHUNKS
+# --------------------------------------------------
+
+def extract_pdf_chunks(
+    file_path,
+    file_hash
+):
+
+    reader = PdfReader(
+        str(file_path)
+    )
+
+    texts = []
+    metadatas = []
+    ids = []
+
+    for page_number, page in enumerate(
+        reader.pages,
+        start=1
+    ):
+
+        page_text = (
+            page.extract_text()
+            or ""
+        )
+
+        if not page_text.strip():
+
+            continue
+
+        page_chunks = (
+            text_splitter.split_text(
+                page_text
+            )
+        )
+
+        for chunk_number, chunk in enumerate(
+            page_chunks,
+            start=1
+        ):
+
+            texts.append(
+                chunk
+            )
+
+            metadatas.append({
+                "source": file_path.name,
+                "file_type": "pdf",
+                "page": page_number,
+                "chunk_number": chunk_number,
+                "file_hash": file_hash,
+                "uploaded": True
+            })
+
+            ids.append(
+                f"upload_"
+                f"{file_hash[:12]}_"
+                f"pdf_"
+                f"page_{page_number}_"
+                f"chunk_{chunk_number}"
+            )
+
+    return (
+        texts,
+        metadatas,
+        ids
+    )
+
+
+# --------------------------------------------------
+# INDEX UPLOADED FILE
+# --------------------------------------------------
+
+def index_uploaded_file(
+    uploaded_file
+):
+
+    file_bytes = (
+        uploaded_file.getvalue()
+    )
+
+    file_hash = (
+        create_file_hash(
+            file_bytes
+        )
+    )
+
+    source_name = (
+        uploaded_file.name
+    )
+
+    suffix = (
+        Path(source_name)
+        .suffix
+        .lower()
+    )
+
+
+    if file_already_indexed(
+        file_hash
+    ):
+
+        return {
+            "status": "already_exists",
+            "file": source_name,
+            "chunks": 0,
+            "deleted": 0
+        }
+
+
+    file_path = (
+        UPLOAD_FOLDER
+        / source_name
+    )
+
+    file_path.write_bytes(
+        file_bytes
+    )
+
+
+    if suffix == ".txt":
+
+        (
+            texts,
+            metadatas,
+            ids
+        ) = extract_txt_chunks(
+            file_path,
+            file_hash
+        )
+
+    elif suffix == ".pdf":
+
+        (
+            texts,
+            metadatas,
+            ids
+        ) = extract_pdf_chunks(
+            file_path,
+            file_hash
+        )
+
+    else:
+
+        raise ValueError(
+            "Only TXT and PDF files are supported."
+        )
+
+
+    if not texts:
+
+        raise ValueError(
+            "No readable text was found "
+            "inside the uploaded file."
+        )
+
+
+    deleted_count = (
+        delete_existing_source(
+            source_name
+        )
+    )
+
+
+    total_chunks = len(
+        texts
+    )
+
+    progress_bar = (
+        st.progress(0)
+    )
+
+    status_text = (
+        st.empty()
+    )
+
+    added_ids = []
+
+
+    try:
+
+        for start_index in range(
+            0,
+            total_chunks,
+            BATCH_SIZE
+        ):
+
+            end_index = min(
+                start_index
+                + BATCH_SIZE,
+                total_chunks
+            )
+
+            batch_texts = (
+                texts[
+                    start_index:end_index
+                ]
+            )
+
+            batch_metadatas = (
+                metadatas[
+                    start_index:end_index
+                ]
+            )
+
+            batch_ids = (
+                ids[
+                    start_index:end_index
+                ]
+            )
+
+            vector_store.add_texts(
+                texts=batch_texts,
+                metadatas=batch_metadatas,
+                ids=batch_ids
+            )
+
+            added_ids.extend(
+                batch_ids
+            )
+
+            progress = (
+                end_index
+                / total_chunks
+            )
+
+            progress_bar.progress(
+                progress
+            )
+
+            status_text.write(
+                f"Indexed "
+                f"{end_index}/"
+                f"{total_chunks} chunks"
+            )
+
+
+    except Exception:
+
+        if added_ids:
+
+            vector_store.delete(
+                ids=added_ids
+            )
+
+        raise
+
+
+    progress_bar.empty()
+    status_text.empty()
+
+
+    return {
+        "status": "indexed",
+        "file": source_name,
+        "chunks": total_chunks,
+        "deleted": deleted_count
+    }
+
+
+# --------------------------------------------------
+# GET INDEXED DOCUMENTS
+# --------------------------------------------------
+
+def get_indexed_documents():
+
+    data = vector_store.get(
+        include=[
+            "metadatas"
+        ]
+    )
+
+    metadatas = (
+        data.get(
+            "metadatas",
+            []
+        )
+    )
+
+    documents = {}
+
+
+    for metadata in metadatas:
+
+        if metadata is None:
+
+            continue
+
+
+        source = metadata.get(
+            "source",
+            "Unknown"
+        )
+
+        file_type = metadata.get(
+            "file_type",
+            "Unknown"
+        )
+
+        uploaded = metadata.get(
+            "uploaded",
+            False
+        )
+
+
+        if source not in documents:
+
+            documents[source] = {
+                "file_type": file_type,
+                "uploaded": uploaded,
+                "chunks": 0
+            }
+
+
+        documents[source][
+            "chunks"
+        ] += 1
+
+
+    return documents
+
+
+# --------------------------------------------------
 # DISPLAY SOURCES
 # --------------------------------------------------
 
-def display_sources(source_list):
+def display_sources(
+    source_list
+):
 
     for index, source_data in enumerate(
         source_list,
@@ -472,7 +1074,237 @@ def display_sources(source_list):
 
 
 # --------------------------------------------------
-# HEADER
+# SIDEBAR
+# --------------------------------------------------
+
+with st.sidebar:
+
+    st.header(
+        "📄 Knowledge Base"
+    )
+
+    st.write(
+        "Upload a TXT or PDF file "
+        "and add it directly to Chroma."
+    )
+
+
+    uploaded_file = (
+        st.file_uploader(
+            "Choose a document",
+            type=[
+                "txt",
+                "pdf"
+            ]
+        )
+    )
+
+
+    add_document = (
+        st.button(
+            "Add to Knowledge Base",
+            use_container_width=True
+        )
+    )
+
+
+    if (
+        add_document
+        and uploaded_file
+        is not None
+    ):
+
+        try:
+
+            with st.spinner(
+                "Processing and indexing document..."
+            ):
+
+                result = (
+                    index_uploaded_file(
+                        uploaded_file
+                    )
+                )
+
+
+            if (
+                result["status"]
+                == "already_exists"
+            ):
+
+                st.info(
+                    f"{result['file']} "
+                    f"is already indexed."
+                )
+
+            else:
+
+                st.success(
+                    f"{result['file']} "
+                    f"indexed successfully."
+                )
+
+                st.write(
+                    f"Chunks added: "
+                    f"{result['chunks']}"
+                )
+
+                if (
+                    result["deleted"]
+                    > 0
+                ):
+
+                    st.write(
+                        "Previous version replaced: "
+                        f"{result['deleted']} "
+                        "old chunks removed."
+                    )
+
+
+        except Exception as error:
+
+            st.error(
+                f"Indexing failed: "
+                f"{error}"
+            )
+
+
+    elif (
+        add_document
+        and uploaded_file
+        is None
+    ):
+
+        st.warning(
+            "Please choose a TXT "
+            "or PDF file first."
+        )
+
+
+    # --------------------------------------------------
+    # INDEXED DOCUMENTS
+    # --------------------------------------------------
+
+    st.divider()
+
+    st.subheader(
+        "📚 Indexed Documents"
+    )
+
+
+    indexed_documents = (
+        get_indexed_documents()
+    )
+
+
+    if not indexed_documents:
+
+        st.write(
+            "No documents indexed."
+        )
+
+    else:
+
+        st.write(
+            f"Total Documents: "
+            f"{len(indexed_documents)}"
+        )
+
+
+        for source, details in sorted(
+            indexed_documents.items()
+        ):
+
+            with st.expander(
+                source
+            ):
+
+                st.write(
+                    f"**Type:** "
+                    f"{details['file_type']}"
+                )
+
+                st.write(
+                    f"**Chunks:** "
+                    f"{details['chunks']}"
+                )
+
+
+                if details["uploaded"]:
+
+                    st.write(
+                        "**Source:** "
+                        "Uploaded from app"
+                    )
+
+
+                    delete_button = (
+                        st.button(
+                            f"Delete {source}",
+                            key=f"delete_{source}",
+                            use_container_width=True
+                        )
+                    )
+
+
+                    if delete_button:
+
+                        delete_result = (
+                            delete_uploaded_document(
+                                source
+                            )
+                        )
+
+
+                        if (
+                            delete_result["status"]
+                            == "deleted"
+                        ):
+
+                            st.success(
+                                f"{source} deleted."
+                            )
+
+                            st.write(
+                                "Chunks removed: "
+                                f"{delete_result['deleted_chunks']}"
+                            )
+
+                            st.rerun()
+
+
+                        elif (
+                            delete_result["status"]
+                            == "protected"
+                        ):
+
+                            st.error(
+                                "This document is protected "
+                                "and cannot be deleted."
+                            )
+
+
+                        else:
+
+                            st.warning(
+                                "Document was not found."
+                            )
+
+
+                else:
+
+                    st.write(
+                        "**Source:** "
+                        "Base knowledge"
+                    )
+
+                    st.caption(
+                        "Protected document"
+                    )
+
+
+# --------------------------------------------------
+# MAIN HEADER
 # --------------------------------------------------
 
 st.title(
@@ -494,7 +1326,9 @@ st.info(
 # CLEAR CHAT
 # --------------------------------------------------
 
-if st.button("Clear Chat"):
+if st.button(
+    "Clear Chat"
+):
 
     st.session_state.messages = []
 
@@ -510,7 +1344,7 @@ if st.button("Clear Chat"):
 
 
 # --------------------------------------------------
-# DISPLAY SAVED MESSAGES
+# DISPLAY SAVED CHAT
 # --------------------------------------------------
 
 for message in (
@@ -531,6 +1365,7 @@ for message in (
             )
         )
 
+
         if message.get(
             "retrieval_query"
         ):
@@ -542,12 +1377,15 @@ for message in (
                 ]
             )
 
+
         if message.get(
             "sources"
         ):
 
             display_sources(
-                message["sources"]
+                message[
+                    "sources"
+                ]
             )
 
 
@@ -571,6 +1409,7 @@ if question:
         "content": question
     }
 
+
     st.session_state.messages.append(
         user_message
     )
@@ -578,9 +1417,13 @@ if question:
     save_chat_history()
 
 
-    with st.chat_message("user"):
+    with st.chat_message(
+        "user"
+    ):
 
-        st.markdown(question)
+        st.markdown(
+            question
+        )
 
 
     with st.chat_message(
@@ -600,7 +1443,10 @@ if question:
             )
 
 
-        st.markdown(response)
+        st.markdown(
+            response
+        )
+
 
         st.caption(
             "Retrieval Query: "
@@ -651,6 +1497,7 @@ if question:
                 )
             }
 
+
             source_list.append(
                 source_data
             )
@@ -669,6 +1516,7 @@ if question:
         "sources": source_list,
         "retrieval_query": retrieval_query
     }
+
 
     st.session_state.messages.append(
         assistant_message

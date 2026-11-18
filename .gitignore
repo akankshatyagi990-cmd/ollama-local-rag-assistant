@@ -8,3 +8,6 @@ langchain_chat_history.json
 chat_history.json
 
 .env
+
+knowledge/uploads/
+knowledge/2024-wttc-introduction-to-ai.pdf
